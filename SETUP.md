@@ -1,4 +1,4 @@
-# Setting Clearway up on a new machine
+# Setting ClearWay up on a new machine
 
 Two ways in. **Path A** runs the whole stack in Docker and needs almost nothing
 installed. **Path B** runs Python and Node natively, which is what you want if
@@ -7,7 +7,6 @@ you are going to change the code.
 Both work on Windows, Linux and macOS. Where a command differs, the Windows
 version is given separately.
 
-> **Clearway runs with no API keys at all.** Without one it works in
 > **CAMS-only mode**: nowcasts and forecasts come from the Copernicus physics
 > model and are labelled as uncorrected. Adding a free key turns on the machine
 > learning: ground truth to train on, and a scorecard to grade it against.
@@ -68,8 +67,8 @@ Windows notes:
 ## 2. Get the code
 
 ```bash
-git clone <your-repo-url> clearway
-cd clearway
+git clone https://github.com/FardousNayeem/ClearWay.git ClearWay
+cd ClearWay
 ```
 
 Every path below is relative to that folder.

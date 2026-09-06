@@ -1,6 +1,6 @@
-# Clearway
+# ClearWay
 
-Air quality you can act on. Clearway tells you when it's safe to go outside with air quality you can trust. A PM2.5 nowcast built from the monitoring stations
+Air quality you can act on. ClearWay tells you when it's safe to go outside with air quality you can trust. A PM2.5 nowcast built from the monitoring stations
 nearest you, a 24-hour forecast that corrects the global physics model using
 what those stations actually recorded, and a scorecard that grades itself every
 day against what happened. Every data source is open.
@@ -133,7 +133,7 @@ Layered, with a strict dependency direction. Nothing points back up.
 | [Open-Meteo Air Quality](https://open-meteo.com/en/docs/air-quality-api) | CAMS PM2.5. Baseline **and** feature | None |
 | [Open-Meteo Forecast, Archive, Geocoding, Elevation](https://open-meteo.com) | Weather, place search, terrain | None |
 
-With no key at all, Clearway runs in **CAMS-only mode**: forecasts still work
+With no key at all, ClearWay runs in **CAMS-only mode**: forecasts still work
 and are labelled as uncorrected, but there is no ground truth to train on or to
 score against. Clone it and it runs.
 
