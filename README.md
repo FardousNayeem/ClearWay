@@ -1,12 +1,11 @@
 # Clearway
 
-Air quality you can act on. A PM2.5 nowcast built from the monitoring stations
+Air quality you can act on. Clearway tells you when it's safe to go outside with air quality you can trust. A PM2.5 nowcast built from the monitoring stations
 nearest you, a 24-hour forecast that corrects the global physics model using
 what those stations actually recorded, and a scorecard that grades itself every
-day against what happened.
+day against what happened. Every data source is open.
 
 FastAPI + PostgreSQL + scikit-learn behind a statically generated Next.js site.
-Every data source is open, and only one of them needs a key.
 
 
 ## The question it answers
