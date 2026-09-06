@@ -1,0 +1,253 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Clearway design tokens.
+
+   One rule drives the whole palette: **the AQI scale owns colour meaning.**
+   Green through maroon is a published public-health standard that people
+   already read without a legend, so the interface chrome must never compete
+   with it. The chrome accent is therefore a cool blue that appears nowhere in
+   the AQI ramp: a blue element is always a control, never a health signal.
+
+   Chart series use exactly two hues, blue and orange, validated for
+   colour-vision separation and contrast against both chart surfaces. The
+   weaker baselines are drawn as neutral dashed lines with direct labels rather
+   than as further hues, because four categorical colours cannot all be told
+   apart under deuteranopia.
+
+   Radius scale, applied without exception:
+     sm  4px  chips, inputs, small controls
+     md  8px  buttons, cards
+     lg 14px  panels, sheets
+--------------------------------------------------------------------------- */
+
+:root {
+  color-scheme: light;
+
+  --canvas: #f4f6f7;
+  --surface: #ffffff;
+  --surface-sunk: #eceff1;
+  --ink: #10161a;
+  --ink-soft: #39454d;
+  --muted: #66737c;
+  --line: #dde2e5;
+  --line-strong: #c3ccd1;
+
+  --accent: #0f6d8c;
+  --accent-hover: #0b5a74;
+  --accent-quiet: #e4f0f4;
+  --on-accent: #ffffff;
+
+  /* US EPA AQI categories, adjusted for legibility. The published hues are
+     tuned for large map fills and are unreadable behind text, so each band has
+     a fill and a darker ink that meets contrast on that fill. */
+  --aqi-good: #64ba5c;
+  --aqi-good-ink: #2c6428;
+  --aqi-moderate: #e8d04a;
+  --aqi-moderate-ink: #6f5c00;
+  --aqi-usg: #ef8f45;
+  --aqi-usg-ink: #8a4413;
+  --aqi-unhealthy: #e5595e;
+  --aqi-unhealthy-ink: #97202a;
+  --aqi-very: #a06bb5;
+  --aqi-very-ink: #63357a;
+  --aqi-hazardous: #a3455c;
+  --aqi-hazardous-ink: #6d1b30;
+
+  /* Chart series. Validated with the dataviz palette checker: lightness band,
+     chroma floor, all-pairs CVD separation and contrast all pass. */
+  --series-model: #0072b2;
+  --series-cams: #d55e00;
+  --series-muted: #7d8a92;
+  --grid: #e6eaec;
+
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 14px;
+
+  --shadow-sm: 0 1px 2px rgb(16 22 26 / 0.07);
+  --shadow-md: 0 6px 20px rgb(16 22 26 / 0.09);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --canvas: #0c1013;
+    --surface: #14181c;
+    --surface-sunk: #0f1417;
+    --ink: #e9eef0;
+    --ink-soft: #bcc7cd;
+    --muted: #8b979e;
+    --line: #232a2f;
+    --line-strong: #354049;
+
+    --accent: #4bb3d4;
+    --accent-hover: #6cc6e2;
+    --accent-quiet: #0d2b36;
+    --on-accent: #08161b;
+
+    --aqi-good: #5aa855;
+    --aqi-good-ink: #b6e2b0;
+    --aqi-moderate: #cbb245;
+    --aqi-moderate-ink: #f0e0a0;
+    --aqi-usg: #d97f3d;
+    --aqi-usg-ink: #f6c9a4;
+    --aqi-unhealthy: #cf5158;
+    --aqi-unhealthy-ink: #f4b3b6;
+    --aqi-very: #9160a4;
+    --aqi-very-ink: #dcc0e6;
+    --aqi-hazardous: #934052;
+    --aqi-hazardous-ink: #e5adba;
+
+    --series-model: #3d93cc;
+    --series-cams: #e0722a;
+    --series-muted: #74838b;
+    --grid: #1f262b;
+
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
+    --shadow-md: 0 6px 20px rgb(0 0 0 / 0.55);
+  }
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas: #0c1013;
+  --surface: #14181c;
+  --surface-sunk: #0f1417;
+  --ink: #e9eef0;
+  --ink-soft: #bcc7cd;
+  --muted: #8b979e;
+  --line: #232a2f;
+  --line-strong: #354049;
+
+  --accent: #4bb3d4;
+  --accent-hover: #6cc6e2;
+  --accent-quiet: #0d2b36;
+  --on-accent: #08161b;
+
+  --aqi-good: #5aa855;
+  --aqi-good-ink: #b6e2b0;
+  --aqi-moderate: #cbb245;
+  --aqi-moderate-ink: #f0e0a0;
+  --aqi-usg: #d97f3d;
+  --aqi-usg-ink: #f6c9a4;
+  --aqi-unhealthy: #cf5158;
+  --aqi-unhealthy-ink: #f4b3b6;
+  --aqi-very: #9160a4;
+  --aqi-very-ink: #dcc0e6;
+  --aqi-hazardous: #934052;
+  --aqi-hazardous-ink: #e5adba;
+
+  --series-model: #3d93cc;
+  --series-cams: #e0722a;
+  --series-muted: #74838b;
+  --grid: #1f262b;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
+  --shadow-md: 0 6px 20px rgb(0 0 0 / 0.55);
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-sunk: var(--surface-sunk);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-quiet: var(--accent-quiet);
+  --color-on-accent: var(--on-accent);
+  --color-grid: var(--grid);
+  --color-series-model: var(--series-model);
+  --color-series-cams: var(--series-cams);
+  --color-series-muted: var(--series-muted);
+
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+* {
+  border-color: var(--line);
+}
+
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* Numbers that are compared to other numbers must line up. */
+.numeric {
+  font-family: var(--font-mono), monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-sunk);
+  border-radius: var(--r-sm);
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--ink) 7%, transparent),
+    transparent
+  );
+  animation: shimmer 1.5s infinite;
+}
+
+/* MapLibre's own chrome, brought into the token system. */
+.maplibregl-ctrl-attrib {
+  background: color-mix(in srgb, var(--surface) 85%, transparent) !important;
+  color: var(--muted) !important;
+  font-size: 11px !important;
+}
+
+.maplibregl-ctrl-attrib a {
+  color: var(--muted) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -1,0 +1,60 @@
+name: clearway
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: clearway
+      POSTGRES_PASSWORD: clearway
+      POSTGRES_DB: clearway
+    ports: ["127.0.0.1:5436:5432"]
+    volumes: ["clearway-pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clearway -d clearway"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    environment: &api-env
+      CLEARWAY_ENV: docker
+      CLEARWAY_DEBUG: "false"
+      CLEARWAY_DATABASE_URL: postgresql+psycopg://clearway:clearway@postgres:5432/clearway
+      CLEARWAY_CORS_ORIGINS: http://localhost:3000
+      CLEARWAY_MODEL_DIR: /app/var/models
+      # Optional. Without either, the stack runs in CAMS-only mode.
+      CLEARWAY_OPENAQ_API_KEY: ${CLEARWAY_OPENAQ_API_KEY:-}
+      CLEARWAY_WAQI_API_TOKEN: ${CLEARWAY_WAQI_API_TOKEN:-}
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2"
+    ports: ["127.0.0.1:8000:8000"]
+    volumes: ["clearway-models:/app/var/models"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  # Scheduled work runs in its own container so an API restart never
+  # interrupts a training run, and so the API can be scaled without
+  # duplicating cron jobs.
+  scheduler:
+    build: ./backend
+    environment: *api-env
+    command: python -m app.jobs.run
+    volumes: ["clearway-models:/app/var/models"]
+    depends_on:
+      api: { condition: service_started }
+
+  web:
+    build:
+      context: ./web
+      args:
+        API_BASE_URL: http://api:8000/api/v1
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api/v1
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      api: { condition: service_started }
+
+volumes:
+  clearway-pgdata:
+  clearway-models:

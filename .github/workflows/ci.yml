@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: clearway
+          POSTGRES_PASSWORD: clearway
+          POSTGRES_DB: clearway
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U clearway"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      CLEARWAY_DATABASE_URL: postgresql+psycopg://clearway:clearway@127.0.0.1:5432/clearway
+      CLEARWAY_TEST_DATABASE_URL: postgresql+psycopg://clearway:clearway@127.0.0.1:5432/clearway_test
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - run: pip install -r requirements-dev.txt
+
+      - name: Create the test database
+        run: PGPASSWORD=clearway psql -h 127.0.0.1 -U clearway -d clearway -c 'CREATE DATABASE clearway_test;'
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Type check
+        run: mypy app
+
+      - name: Migrations apply cleanly from empty
+        run: alembic upgrade head
+
+      - name: No model changes are missing a migration
+        run: |
+          alembic revision --autogenerate -m "ci drift check" --rev-id ci_drift
+          # Autogenerate writes a file even when there is nothing to do, so the
+          # check is whether that file contains any operations.
+          if grep -qE "op\.(create|drop|add|alter)" migrations/versions/*ci_drift*.py; then
+            echo "Model changes are not captured in a migration:"
+            cat migrations/versions/*ci_drift*.py
+            exit 1
+          fi
+          rm -f migrations/versions/*ci_drift*.py
+
+      - name: Test
+        run: pytest --cov=app --cov-report=term-missing --cov-fail-under=70
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+
+      # The API is not running in CI, so the loaders fall back to empty data.
+      # The build still proves every page prerenders without throwing.
+      - run: npm run build
+
+  images:
+    name: Container images
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t clearway-api ./backend
+      - run: docker build -t clearway-web ./web
