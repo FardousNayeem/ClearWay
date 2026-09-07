@@ -5,7 +5,7 @@ import { Scorecard } from "@/components/model/Scorecard";
 export const metadata: Metadata = {
   title: "How accurate is it",
   description:
-    "ClearWay scores itself every day against persistence, climatology and the raw CAMS physics model, on forecasts made before the outcome was known.",
+    "Clearway scores itself every day against persistence, climatology and the raw CAMS physics model, on forecasts made before the outcome was known.",
 };
 
 export default function ModelPage() {

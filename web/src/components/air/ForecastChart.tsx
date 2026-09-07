@@ -64,7 +64,7 @@ export function ForecastChart({
   return (
     <figure className="m-0">
       <div className="mb-3 flex flex-wrap items-center gap-4 text-[12.5px]">
-        <Legend colour="var(--series-model)" label="ClearWay forecast" />
+        <Legend colour="var(--series-model)" label="Clearway forecast" />
         {showCams && points.some((p) => p.cams_pm25 !== null) && (
           <Legend colour="var(--series-cams)" label="CAMS, uncorrected" dashed />
         )}

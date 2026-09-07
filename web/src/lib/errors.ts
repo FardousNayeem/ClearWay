@@ -29,7 +29,7 @@ export class ApiError extends Error {
   static from(status: number, body: ApiErrorBody | null): ApiError {
     const error = body?.error;
     if (!error) {
-      return new ApiError(status, "network_error", "ClearWay is not responding.");
+      return new ApiError(status, "network_error", "Clearway is not responding.");
     }
     return new ApiError(status, error.code, error.message, error.details ?? {});
   }
@@ -45,7 +45,7 @@ export class ApiError extends Error {
       case "validation_error":
         return "That location does not look right.";
       case "network_error":
-        return "ClearWay is not responding. Check the API is running.";
+        return "Clearway is not responding. Check the API is running.";
       default:
         return this.message;
     }

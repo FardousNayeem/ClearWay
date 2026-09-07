@@ -1,4 +1,4 @@
-# Setting ClearWay up on a new machine
+# Setting Clearway up on a new machine
 
 Two ways in. **Path A** runs the whole stack in Docker and needs almost nothing
 installed. **Path B** runs Python and Node natively, which is what you want if
@@ -7,38 +7,11 @@ you are going to change the code.
 Both work on Windows, Linux and macOS. Where a command differs, the Windows
 version is given separately.
 
+> **Clearway runs with no API keys at all.** Without one it works in
 > **CAMS-only mode**: nowcasts and forecasts come from the Copernicus physics
 > model and are labelled as uncorrected. Adding a free key turns on the machine
 > learning: ground truth to train on, and a scorecard to grade it against.
 > Do the quick start first, add keys later.
-
-## Layout
-
-```
-backend/
-  app/
-    api/            routers. Parse, delegate, serialise. No rules
-    services/       use cases: ingestion, nowcast, forecasting, guidance,
-                    scoring, training
-    repositories/   SQL, one aggregate each
-    providers/      the only place httpx appears
-    ml/             features, baselines, trainer, predictor, evaluation
-    domain/         pure functions. AQI maths, geo maths, time features
-    db/             tables
-    jobs/           scheduler and its entry point
-    cli.py          operator commands
-  migrations/       Alembic
-  tests/            105 tests
-web/
-  src/app/          two routes, both statically prerendered
-  src/components/   ui primitives, then air / model / map features
-  src/lib/          api client, error envelope, AQI tokens, formatters
-```
-
-The dependency rule: `api → services → repositories → db`, and `domain/`
-imports nothing from the layers above it, which is why its tests need neither a
-database nor a network.
-
 
 ---
 
@@ -67,8 +40,8 @@ Windows notes:
 ## 2. Get the code
 
 ```bash
-git clone https://github.com/FardousNayeem/ClearWay.git ClearWay
-cd ClearWay
+git clone <your-repo-url> clearway
+cd clearway
 ```
 
 Every path below is relative to that folder.
@@ -453,27 +426,3 @@ Desktop and wait for "Engine running".
 
 For how the pieces fit together rather than how to start them, read
 [`docs/DECISIONS.md`](docs/DECISIONS.md) and [`PLAN.md`](PLAN.md).
-
-
-## 10. Checks
-
-```bash
-make check   # ruff, mypy, pytest with coverage, tsc, next lint
-```
-
-CI additionally proves migrations apply from empty, that no model change is
-missing a migration, and that both container images build.
-
-## 11. Deliberate limits
-
-- **No turn-by-turn exposure routing.** It needs a routing engine, a fourth
-  external dependency, and adds little over "go out at 06:00 instead of 18:00".
-  Recorded as v2.
-- **No deep learning.** Tree ensembles win on this problem at this data volume,
-  train in seconds on a CPU, and handle the gaps that station data is full of.
-  A transformer here would cost hours and lose accuracy.
-- **WAQI cannot backfill.** It exposes only the latest reading per station, so
-  it improves coverage going forward but cannot fill history.
-- **Seven cities.** Coverage is an explicit list so ingestion stays inside free
-  rate limits and the database fits on a laptop. Place search still works
-  anywhere in the world, falling back to CAMS.

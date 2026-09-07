@@ -1,3 +1,5 @@
+/** Mirrors the Clearway API schemas. Kept in step with backend/app/schemas. */
+
 export type AqiCategory =
   | "good"
   | "moderate"

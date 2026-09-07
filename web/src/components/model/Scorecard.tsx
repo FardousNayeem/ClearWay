@@ -21,7 +21,7 @@ const BASELINE_NOTES: Record<string, string> = {
     "The last observed value, carried forward. Very strong at one to three hours, because pollution is highly autocorrelated.",
   climatology:
     "The station's own average for that hour of the day. Captures the daily cycle and nothing else.",
-  cams: "The Copernicus physics model, unmodified. This is what ClearWay is correcting.",
+  cams: "The Copernicus physics model, unmodified. This is what Clearway is correcting.",
 };
 
 export function Scorecard() {
@@ -178,7 +178,7 @@ export function Scorecard() {
           <p className="max-w-[76ch]">
             CAMS forecasts PM2.5 worldwide on a 40 km grid, 11 km over Europe. At that
             resolution it cannot see a specific junction or a street canyon, so its
-            error at any one station is systematic rather than random. ClearWay learns
+            error at any one station is systematic rather than random. Clearway learns
             that local bias from the station&apos;s own history and corrects it. In
             operational meteorology this is called Model Output Statistics.
           </p>
