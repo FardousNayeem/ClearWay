@@ -22,6 +22,8 @@ class CitySchema(Schema):
     country: str
     latitude: float
     longitude: float
+    #: IANA zone, so the client can show every hour in the city's own time.
+    timezone: str
 
 
 class PlaceSchema(Schema):
@@ -48,6 +50,9 @@ class StationSchema(Schema):
     city_slug: str
     latitude: float
     longitude: float
+    #: As reported by the upstream network; absent for some, so the client
+    #: falls back to the zone of the place the user picked.
+    timezone: str | None = None
     elevation_m: float | None = None
     distance_km: float | None = None
     pm25: float | None = None

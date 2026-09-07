@@ -10,8 +10,8 @@ const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono", dis
 export const metadata: Metadata = {
   metadataBase: new URL("https://clearway.example"),
   title: {
-    default: "Clearway - air quality you can act on",
-    template: "%s | Clearway",
+    default: "ClearWay - air quality you can act on",
+    template: "%s | ClearWay",
   },
   description:
     "Hourly PM2.5 nowcast and 24-hour forecast, bias-corrected from the CAMS physics model and scored every day against what actually happened.",
@@ -51,7 +51,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   <circle cx="18.5" cy="16.5" r="1.6" fill="var(--accent)" />
                 </svg>
                 <span className="text-[17px] font-semibold tracking-tight text-ink">
-                  Clearway
+                  ClearWay
                 </span>
               </Link>
 
@@ -109,7 +109,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 project. Basemap by OpenFreeMap and OpenStreetMap contributors.
               </p>
               <p>
-                Clearway is a demonstration project. It is not an official air quality
+                ClearWay is a experimental project. It is not an official air quality
                 advisory, and it should not be used for medical decisions.
               </p>
             </div>

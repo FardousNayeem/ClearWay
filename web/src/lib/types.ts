@@ -1,5 +1,3 @@
-/** Mirrors the Clearway API schemas. Kept in step with backend/app/schemas. */
-
 export type AqiCategory =
   | "good"
   | "moderate"
@@ -22,6 +20,8 @@ export type City = {
   country: string;
   latitude: number;
   longitude: number;
+  /** IANA zone. Every hour shown for this city is an hour in this zone. */
+  timezone: string;
 };
 
 export type Place = {
@@ -86,6 +86,8 @@ export type Station = {
   city_slug: string;
   latitude: number;
   longitude: number;
+  /** Not every network reports one; fall back to the picked place's zone. */
+  timezone: string | null;
   elevation_m: number | null;
   distance_km: number | null;
   pm25: number | null;

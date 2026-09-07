@@ -18,10 +18,13 @@ export function ForecastChart({
   points,
   showCams = true,
   height = 260,
+  timeZone,
 }: {
   points: ForecastPoint[];
   showCams?: boolean;
   height?: number;
+  /** IANA zone of the place being shown; undefined means the viewer's own. */
+  timeZone?: string;
 }) {
   const clipId = useId();
   const [hovered, setHovered] = useState<number | null>(null);
@@ -64,7 +67,7 @@ export function ForecastChart({
   return (
     <figure className="m-0">
       <div className="mb-3 flex flex-wrap items-center gap-4 text-[12.5px]">
-        <Legend colour="var(--series-model)" label="Clearway forecast" />
+        <Legend colour="var(--series-model)" label="ClearWay forecast" />
         {showCams && points.some((p) => p.cams_pm25 !== null) && (
           <Legend colour="var(--series-cams)" label="CAMS, uncorrected" dashed />
         )}
@@ -150,7 +153,7 @@ export function ForecastChart({
                 textAnchor="middle"
                 className="fill-[var(--muted)] text-[10px]"
               >
-                {hour(point.valid_at)}
+                {hour(point.valid_at, timeZone)}
               </text>
             ) : null,
           )}
@@ -223,7 +226,7 @@ export function ForecastChart({
               transform: `translateX(${hovered > points.length / 2 ? "-105%" : "5%"})`,
             }}
           >
-            <p className="text-[11.5px] text-muted">{hour(active.valid_at)}</p>
+            <p className="text-[11.5px] text-muted">{hour(active.valid_at, timeZone)}</p>
             <p className="numeric mt-0.5 text-[14px] font-medium text-ink">
               {micrograms(active.pm25)}
             </p>
@@ -262,7 +265,7 @@ export function ForecastChart({
             <tbody>
               {points.map((point) => (
                 <tr key={point.valid_at} className="border-t border-line">
-                  <td className="numeric px-3 py-1.5 text-ink-soft">{hour(point.valid_at)}</td>
+                  <td className="numeric px-3 py-1.5 text-ink-soft">{hour(point.valid_at, timeZone)}</td>
                   <td className="numeric px-3 py-1.5 text-right text-ink">
                     {point.pm25.toFixed(1)}
                   </td>

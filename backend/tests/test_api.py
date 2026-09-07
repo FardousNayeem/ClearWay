@@ -35,6 +35,29 @@ def test_the_configured_cities_are_listed(client):
     )
 
 
+def test_every_city_carries_the_zone_its_hours_should_be_shown_in(client):
+    """The client renders every hour in the picked city's own time, so a city
+    without a zone would silently fall back to the viewer's clock - the exact
+    bug this field exists to prevent."""
+    from zoneinfo import ZoneInfo
+
+    cities = {city["slug"]: city["timezone"] for city in client.get("/api/v1/cities").json()}
+
+    assert cities["dhaka"] == "Asia/Dhaka"
+    assert cities["delhi"] == "Asia/Kolkata"
+    for slug, zone in cities.items():
+        assert zone, f"{slug} has no timezone"
+        ZoneInfo(zone)  # raises if it is not a real IANA zone
+
+
+def test_a_station_reports_the_zone_it_sits_in(client, station_factory):
+    station_factory(timezone="Asia/Dhaka")
+
+    stations = client.get("/api/v1/stations").json()
+
+    assert stations[0]["timezone"] == "Asia/Dhaka"
+
+
 # --- nowcast -------------------------------------------------------------
 
 

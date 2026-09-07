@@ -11,6 +11,10 @@ build a forecaster that looks brilliant offline and is useless in production:
 Anything else is leakage. The lag columns are therefore built from the
 observation series alone, and the ambient columns are joined at the *target*
 hour, never the issue hour.
+
+The rule is what constrains the spatial features too: they read *other*
+stations' observations, but only at ``t``, never later. A neighbour's reading
+at ``t`` is as legitimately available at issue time as the station's own.
 """
 
 from __future__ import annotations
@@ -22,6 +26,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from app.domain import spatial
+from app.domain.geo import Point
 from app.domain.timeframes import HOURS_IN_DAY
 
 logger = logging.getLogger(__name__)
@@ -29,6 +35,16 @@ logger = logging.getLogger(__name__)
 #: How far back the model is allowed to look at its own history.
 LAGS: tuple[int, ...] = (1, 2, 3, 6, 12, 24)
 ROLLING_WINDOWS: tuple[int, ...] = (6, 24)
+
+#: Spatial features, computed once per (station, hour) from every *other*
+#: active station in the same city. See `_spatial_features` and
+#: `app.domain.spatial` for what each one means.
+SPATIAL_COLUMNS: tuple[str, ...] = (
+    "spatial_bias_krige",
+    "spatial_bias_krige_var",
+    "spatial_neighbours",
+    "spatial_bias_clustering",
+)
 
 AMBIENT_COLUMNS: tuple[str, ...] = (
     "cams_pm25",
@@ -114,6 +130,103 @@ def build_panel(
     return panel
 
 
+def _spatial_features(panel: pd.DataFrame) -> pd.DataFrame:
+    """Leave-one-out ordinary kriging of the CAMS bias field, and how
+    spatially clustered that field is, per city, per hour.
+
+    Every other feature in this module describes a station's *own* past. This
+    is the only one that looks sideways: an hour ago, what were the stations
+    around it saying, and did that even hang together spatially? That is
+    information no amount of per-station history can recover, and it is
+    exactly the shape of the error a 40 km CAMS cell makes - systematic and
+    spatially structured rather than random (see the README's framing of
+    Model Output Statistics).
+
+    "Leave-one-out": a station's own spatial features are built only from
+    *other* stations. A station cannot corroborate itself, and leave-one-out
+    is also what lets this same function serve a future virtual-sensor
+    interpolator, which never has its own reading to begin with.
+
+    The field kriged is ``pm25 - cams_pm25``: how much CAMS is missing at each
+    station that reported. Like every other observation-derived feature here
+    it is then **shifted by one hour**, so the freshest reading any feature
+    carries is ``t - 1``. That matches the lag columns, and it matters
+    operationally rather than only theoretically: station data for the current
+    hour has usually not landed by the time the hourly job runs, so a feature
+    built on ``t`` would be dense in training, where the backfill is complete,
+    and sparse in production. That is the classic way a feature quietly stops
+    meaning the same thing at serving time.
+    """
+
+    empty = {column: np.nan for column in SPATIAL_COLUMNS}
+    if panel.empty or "city_slug" not in panel.columns:
+        return panel.assign(**empty)
+
+    bias = (panel["pm25"] - panel["cams_pm25"]).rename("bias")
+    tagged = pd.concat([panel[["station_id", "hour", "city_slug"]], bias], axis=1)
+
+    rows: list[dict[str, float | int]] = []
+    for _, city_frame in tagged.groupby("city_slug"):
+        coordinates = (
+            panel.loc[city_frame.index].drop_duplicates("station_id").set_index("station_id")
+        )
+        station_ids = list(coordinates.index)
+        # Leave-one-out, so a city needs one more station than the kriging
+        # floor before any of its stations can have a spatial feature at all.
+        if len(station_ids) <= spatial.MIN_NEIGHBOURS_TO_KRIGE:
+            continue
+
+        points = [
+            Point(coordinates.loc[sid, "latitude"], coordinates.loc[sid, "longitude"])
+            for sid in station_ids
+        ]
+        distance = spatial.pairwise_distance_km(points)
+        position = {station_id: index for index, station_id in enumerate(station_ids)}
+
+        # Station coordinates do not change, so the distance matrix above is
+        # built once per city and only indexed into per hour.
+        pivot = city_frame.pivot_table(index="hour", columns="station_id", values="bias")
+        for hour, values_at_hour in pivot.iterrows():
+            available = values_at_hour.dropna()
+            if len(available) <= spatial.MIN_NEIGHBOURS_TO_KRIGE:
+                continue
+
+            local_index = [position[station_id] for station_id in available.index]
+            sub_distance = distance[np.ix_(local_index, local_index)]
+            values = available.to_numpy()
+
+            moran = spatial.morans_i(sub_distance, values)
+            clustering = (
+                moran - spatial.expected_morans_i(len(available)) if moran is not None else np.nan
+            )
+
+            for local_position, station_id in enumerate(available.index):
+                others = [i for i in range(len(available)) if i != local_position]
+                estimate = spatial.krige_from_distances(
+                    sub_distance[np.ix_(others, others)],
+                    sub_distance[local_position, others],
+                    values[others],
+                )
+                rows.append(
+                    {
+                        "station_id": station_id,
+                        "hour": hour,
+                        "spatial_bias_krige": estimate.value if estimate else np.nan,
+                        "spatial_bias_krige_var": estimate.variance if estimate else np.nan,
+                        "spatial_neighbours": estimate.neighbours if estimate else 0,
+                        "spatial_bias_clustering": clustering,
+                    }
+                )
+
+    if not rows:
+        return panel.assign(**empty)
+
+    merged = panel.merge(pd.DataFrame(rows), on=["station_id", "hour"], how="left")
+    # The one-hour shift, per station, for the reason in the docstring.
+    merged[list(SPATIAL_COLUMNS)] = merged.groupby("station_id")[list(SPATIAL_COLUMNS)].shift(1)
+    return merged
+
+
 def _history_features(panel: pd.DataFrame) -> pd.DataFrame:
     """Lags and rolling statistics of the observation series.
 
@@ -181,6 +294,7 @@ FEATURE_COLUMNS: tuple[str, ...] = (
     "elevation_m",
     "latitude",
     "longitude",
+    *SPATIAL_COLUMNS,
     "horizon",
 )
 
@@ -202,8 +316,9 @@ def build_supervised(
     if panel.empty:
         return SupervisedFrame(pd.DataFrame(), pd.Series(dtype=float), pd.DataFrame())
 
-    history = _history_features(panel)
-    # Only the lag columns and identity travel from the issue hour.
+    history = _history_features(_spatial_features(panel))
+    # Only the lag columns, the spatial snapshot and identity travel from the
+    # issue hour.
     issue_columns = [
         "station_id",
         "hour",
@@ -214,6 +329,7 @@ def build_supervised(
         *(f"pm25_roll_{w}_{s}" for w in ROLLING_WINDOWS for s in ("mean", "std")),
         "pm25_delta_1",
         "pm25_delta_3",
+        *SPATIAL_COLUMNS,
     ]
     issue = history[issue_columns].rename(columns={"hour": "issue_hour"})
 
@@ -254,9 +370,15 @@ def build_inference_rows(
 
     Built through exactly the same code path as training, which is the only
     reliable way to stop training and serving drifting apart.
+
+    ``panel`` must therefore hold the target station's *neighbours* too, not
+    just the station being forecast: the spatial features are built from the
+    other stations in the same city, and a single-station panel would silently
+    serve them as missing. :meth:`app.services.forecasting.ForecastService.
+    _inference_rows` is what guarantees that.
     """
 
-    history = _history_features(panel)
+    history = _history_features(_spatial_features(panel))
     station = history[history["station_id"] == station_id]
     if station.empty:
         return pd.DataFrame()
@@ -295,6 +417,7 @@ def build_inference_rows(
                 or column.startswith("pm25_roll_")
                 or column.startswith("pm25_delta_")
             },
+            **{column: base[column] for column in SPATIAL_COLUMNS},
             **ambient.to_dict(),
         }
         rows.append(row)

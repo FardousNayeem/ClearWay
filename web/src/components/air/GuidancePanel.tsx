@@ -21,16 +21,26 @@ export function GuidancePanel({
   guidance,
   sensitivity,
   onSensitivityChange,
+  timeZone,
+  zone,
 }: {
   guidance: Guidance;
   sensitivity: string;
   onSensitivityChange: (value: string) => void;
+  /** IANA zone of the place being shown; undefined means the viewer's own. */
+  timeZone?: string;
+  /** Its short name, e.g. "GMT+6". This panel is where an hour becomes a
+   *  plan, so the hours on it must not be ambiguous. */
+  zone?: string;
 }) {
   return (
     <Panel>
       <PanelHeader
         title="When to go outside"
-        description={`Thresholds follow the US EPA categories. Yours is ${guidance.threshold_pm25} µg/m³.`}
+        description={
+          `Thresholds follow the US EPA categories. Yours is ` +
+          `${guidance.threshold_pm25} µg/m³. Times in local time${zone ? ` (${zone})` : ""}.`
+        }
       />
 
       <div className="flex flex-wrap gap-1.5 border-b border-line px-5 py-3">
@@ -62,7 +72,7 @@ export function GuidancePanel({
                   <CalendarCheck size={17} className="shrink-0 text-accent" weight="duotone" />
                   <div>
                     <p className="numeric text-[13.5px] text-ink">
-                      {hour(window.starts_at)} to {hour(window.ends_at)}
+                      {hour(window.starts_at, timeZone)} to {hour(window.ends_at, timeZone)}
                     </p>
                     <p className="numeric text-[11.5px] text-muted">
                       {window.hours} h, peaking at {window.peak_pm25} µg/m³
@@ -86,7 +96,7 @@ export function GuidancePanel({
                   <span className="flex items-center gap-3">
                     <span className="numeric w-5 text-[12px] text-muted">{entry.rank}</span>
                     <span className="numeric text-[13.5px] text-ink">
-                      {hour(entry.valid_at)}
+                      {hour(entry.valid_at, timeZone)}
                     </span>
                   </span>
                   <span className="flex items-center gap-3">

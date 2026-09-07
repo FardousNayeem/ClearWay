@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Alert, Panel, PanelHeader, SkeletonPanel } from "@/components/ui/primitives";
 import { get, query } from "@/lib/api";
 import { isApiError } from "@/lib/errors";
-import { hour } from "@/lib/format";
+import { hour, zoneLabel } from "@/lib/format";
 import type { City, Forecast, Guidance, Nowcast, Station } from "@/lib/types";
 
 import { ForecastChart } from "./ForecastChart";
@@ -24,7 +24,12 @@ const StationMap = dynamic(
   },
 );
 
-const FALLBACK: Location = { name: "Dhaka, BD", latitude: 23.8103, longitude: 90.4125 };
+const FALLBACK: Location = {
+  name: "Dhaka, BD",
+  latitude: 23.8103,
+  longitude: 90.4125,
+  timezone: "Asia/Dhaka",
+};
 
 export function AirDashboard({ cities }: { cities: City[] }) {
   const [location, setLocation] = useState<Location>(() =>
@@ -33,6 +38,7 @@ export function AirDashboard({ cities }: { cities: City[] }) {
           name: `${cities[0].name}, ${cities[0].country}`,
           latitude: cities[0].latitude,
           longitude: cities[0].longitude,
+          timezone: cities[0].timezone,
         }
       : FALLBACK,
   );
@@ -49,6 +55,12 @@ export function AirDashboard({ cities }: { cities: City[] }) {
     latitude: location.latitude,
     longitude: location.longitude,
   });
+
+  // Undefined rather than null, because that is what `Intl` reads as "use the
+  // viewer's own zone" - the only honest fallback for a place whose zone the
+  // upstream did not give us.
+  const timeZone = location.timezone ?? undefined;
+  const zone = zoneLabel(timeZone);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -114,8 +126,8 @@ export function AirDashboard({ cities }: { cities: City[] }) {
               description={
                 forecast
                   ? forecast.estimator === "model"
-                    ? `Corrected forecast from model v${forecast.model_version}, issued ${hour(forecast.issued_at)}, anchored on ${forecast.station_name}.`
-                    : "Raw CAMS output. No corrected model is trained for this location yet."
+                    ? `Corrected forecast from model v${forecast.model_version}, issued ${hour(forecast.issued_at, timeZone)}, anchored on ${forecast.station_name}. Times in local time${zone && ` (${zone})`}.`
+                    : `Raw CAMS output. No corrected model is trained for this location yet. Times in local time${zone && ` (${zone})`}.`
                   : undefined
               }
             />
@@ -123,7 +135,7 @@ export function AirDashboard({ cities }: { cities: City[] }) {
               {loading && !forecast ? (
                 <SkeletonPanel rows={3} />
               ) : forecast && forecast.points.length > 0 ? (
-                <ForecastChart points={forecast.points} />
+                <ForecastChart points={forecast.points} timeZone={timeZone} />
               ) : (
                 <p className="py-8 text-center text-[13.5px] text-muted">
                   No forecast covers this location yet.
@@ -139,6 +151,8 @@ export function AirDashboard({ cities }: { cities: City[] }) {
               guidance={guidance}
               sensitivity={sensitivity}
               onSensitivityChange={setSensitivity}
+              timeZone={timeZone}
+              zone={zone}
             />
           )}
 
@@ -160,6 +174,10 @@ export function AirDashboard({ cities }: { cities: City[] }) {
                     name: station.name,
                     latitude: station.latitude,
                     longitude: station.longitude,
+                    // A station a few km away is in the same zone as the place
+                    // already selected, so keeping that beats losing the zone
+                    // for a network that does not report one.
+                    timezone: station.timezone ?? location.timezone,
                   })
                 }
               />

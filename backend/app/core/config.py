@@ -28,13 +28,20 @@ class City(BaseModel):
     country: str
     latitude: float
     longitude: float
+    #: IANA zone. Every hour a person reads is an hour in *this* zone, never
+    #: UTC and never the zone the browser happens to sit in: "the air is clear
+    #: at 04:00" is only actionable if 04:00 means 04:00 where the air is.
+    timezone: str
     radius_km: int = 30
     #: Alternative names this city is published under upstream.
     aliases: tuple[str, ...] = ()
 
 
 DEFAULT_CITIES: list[City] = [
-    City(slug="dhaka", name="Dhaka", country="BD", latitude=23.8103, longitude=90.4125),
+    City(
+        slug="dhaka", name="Dhaka", country="BD",
+        latitude=23.8103, longitude=90.4125, timezone="Asia/Dhaka",
+    ),
     # Officially renamed Chattogram in 2018; OpenAQ still carries both spellings,
     # so the search term is kept separate from the display name.
     City(
@@ -43,13 +50,29 @@ DEFAULT_CITIES: list[City] = [
         country="BD",
         latitude=22.3569,
         longitude=91.7832,
+        timezone="Asia/Dhaka",
         aliases=("Chittagong",),
     ),
-    City(slug="delhi", name="Delhi", country="IN", latitude=28.6139, longitude=77.2090),
-    City(slug="beijing", name="Beijing", country="CN", latitude=39.9042, longitude=116.4074),
-    City(slug="moscow", name="Moscow", country="RU", latitude=55.7558, longitude=37.6173),
-    City(slug="berlin", name="Berlin", country="DE", latitude=52.5200, longitude=13.4050),
-    City(slug="london", name="London", country="GB", latitude=51.5072, longitude=-0.1276),
+    City(
+        slug="delhi", name="Delhi", country="IN",
+        latitude=28.6139, longitude=77.2090, timezone="Asia/Kolkata",
+    ),
+    City(
+        slug="beijing", name="Beijing", country="CN",
+        latitude=39.9042, longitude=116.4074, timezone="Asia/Shanghai",
+    ),
+    City(
+        slug="moscow", name="Moscow", country="RU",
+        latitude=55.7558, longitude=37.6173, timezone="Europe/Moscow",
+    ),
+    City(
+        slug="berlin", name="Berlin", country="DE",
+        latitude=52.5200, longitude=13.4050, timezone="Europe/Berlin",
+    ),
+    City(
+        slug="london", name="London", country="GB",
+        latitude=51.5072, longitude=-0.1276, timezone="Europe/London",
+    ),
 ]
 
 

@@ -15,7 +15,15 @@ import pytest
 from app.db.models import Estimator
 from app.ml import baselines
 from app.ml.evaluation import score, score_by_horizon
-from app.ml.features import LAGS, build_panel, build_supervised
+from app.ml.features import (
+    LAGS,
+    SPATIAL_COLUMNS,
+    SupervisedFrame,
+    _spatial_features,
+    build_inference_rows,
+    build_panel,
+    build_supervised,
+)
 from app.ml.trainer import chronological_split, train
 
 
@@ -184,6 +192,240 @@ def test_every_horizon_is_represented(panel):
     frame = build_supervised(panel, horizons=24, max_rows=None)
 
     assert sorted(frame.meta["horizon"].unique()) == list(range(1, 25))
+
+
+# --- spatial features -----------------------------------------------------
+
+
+def _bias_panel(biases: dict[int, float], hours: int = 40) -> pd.DataFrame:
+    """A panel with a *known* CAMS bias per station.
+
+    Every station sees the same CAMS field and the same true concentration
+    shape; the only thing that differs is how far each station's observation
+    sits above CAMS. That makes the kriged bias field's expected value
+    obvious, which is what these tests check.
+    """
+
+    start = dt.datetime(2026, 6, 1, tzinfo=dt.UTC)
+    measurements, ambient = [], []
+    for index, (station_id, bias) in enumerate(sorted(biases.items())):
+        for step in range(hours):
+            moment = start + dt.timedelta(hours=step)
+            cams = 30.0 + 5.0 * np.sin(2 * np.pi * step / 24)
+            measurements.append(
+                (
+                    station_id,
+                    moment,
+                    round(cams + bias, 2),
+                    23.80 + 0.03 * index,  # a few km apart, well inside the kriging range
+                    90.40 + 0.03 * index,
+                    10.0,
+                    "dhaka",
+                )
+            )
+            ambient.append(
+                (station_id, moment, round(cams, 2), 60.0, 26.0, 70.0,
+                 2.0, 180.0, 0.0, 1008.0, 400.0)
+            )
+    return build_panel(measurements, ambient, pd.DataFrame())
+
+
+def test_a_station_gets_its_neighbours_bias_not_its_own(panel):
+    """The leave-one-out property, and the whole point of the feature. One
+    station is wildly biased against CAMS and the others are not; that
+    station's own kriged bias must reflect the neighbours it cannot see
+    itself in."""
+    built = build_supervised(
+        _bias_panel({1: 40.0, 2: 0.0, 3: 0.0, 4: 0.0}), horizons=1, max_rows=None
+    )
+
+    frame = built.X.assign(station_id=built.meta["station_id"])
+    biased = frame[frame["station_id"] == 1]["spatial_bias_krige"].dropna()
+    unbiased = frame[frame["station_id"] == 2]["spatial_bias_krige"].dropna()
+
+    assert not biased.empty
+    assert biased.abs().max() < 5.0, "its own +40 bias leaked into its own feature"
+    assert unbiased.mean() > 5.0, "a neighbour's +40 bias should be visible from station 2"
+
+
+def test_a_city_with_too_few_stations_reports_no_spatial_signal(panel):
+    """Two stations cannot support a kriging system. Missing is the honest
+    answer, and the estimator handles missing natively."""
+    built = build_supervised(_bias_panel({1: 10.0, 2: 0.0}), horizons=1, max_rows=None)
+
+    for column in SPATIAL_COLUMNS:
+        assert column in built.X.columns
+    assert built.X["spatial_bias_krige"].isna().all()
+
+
+def test_spatial_features_come_from_the_hour_before_the_issue_hour(panel):
+    """Same discipline as the lag columns: the freshest observation any
+    feature carries is t-1, neighbours included. Anything fresher would be
+    dense in the backfill and missing in production."""
+    built = build_supervised(
+        _bias_panel({1: 30.0, 2: 0.0, 3: 5.0, 4: -5.0}), horizons=3, max_rows=None
+    )
+
+    reference = (
+        _spatial_features(_bias_panel({1: 30.0, 2: 0.0, 3: 5.0, 4: -5.0}))
+        .set_index(["station_id", "hour"])["spatial_bias_krige"]
+        .dropna()
+    )
+
+    checked = 0
+    for index, row in built.meta.iterrows():
+        actual = built.X.loc[index, "spatial_bias_krige"]
+        if pd.isna(actual):
+            continue
+        # The panel row for the issue hour already carries the shifted value.
+        assert actual == pytest.approx(reference[(row["station_id"], row["issue_hour"])])
+        checked += 1
+        if checked >= 50:
+            break
+    assert checked > 0, "no row carried a spatial feature; the join is broken"
+
+
+def test_clustering_is_measured_against_chance_not_against_zero():
+    """Moran's I averages -1/(n-1) under spatial randomness, which for the
+    three or four stations a city typically has reporting is nowhere near
+    zero. A bias that varies smoothly across the city - the textbook
+    clustered field - must come out positive even though its raw I does not."""
+    built = build_supervised(
+        _bias_panel({1: 0.0, 2: 4.0, 3: 8.0, 4: 12.0}), horizons=1, max_rows=None
+    )
+
+    values = built.X["spatial_bias_clustering"].dropna()
+
+    assert not values.empty
+    assert values.mean() > 0.0
+
+
+def test_the_live_pipeline_serves_the_same_spatial_snapshot_for_every_horizon():
+    """Inference rows are built from the issue hour, so all 24 horizons share
+    one spatial snapshot. If this ever differs per horizon, something is
+    reading forward."""
+    built = _bias_panel({1: 15.0, 2: 0.0, 3: 0.0, 4: 0.0})
+    issue_hour = built["hour"].max()
+
+    rows = build_inference_rows(built, station_id=1, issue_hour=issue_hour, horizons=6)
+
+    assert len(rows) == 6
+    for column in SPATIAL_COLUMNS:
+        assert rows[column].nunique(dropna=False) == 1
+    assert rows["spatial_bias_krige"].notna().all(), "neighbours were present; expect a value"
+
+
+def test_a_single_station_panel_at_inference_degrades_to_missing_not_wrong():
+    """Serving a station whose neighbours are all offline must not invent a
+    spatial signal."""
+    built = _bias_panel({1: 15.0})
+    issue_hour = built["hour"].max()
+
+    rows = build_inference_rows(built, station_id=1, issue_hour=issue_hour, horizons=3)
+
+    assert rows["spatial_bias_krige"].isna().all()
+
+
+def _structured_bias_rows(stations: int = 5, days: int = 30, seed: int = 11):
+    """Stations on a transect, with a CAMS bias field that varies smoothly
+    along it and drifts over days.
+
+    This is the situation the spatial block exists for, and it is not a
+    contrivance: it is what a source region a 40 km CAMS cell cannot resolve -
+    a kiln cluster, a port, a stretch of stop-start traffic - does to the
+    error field. Stations near it share a bias anomaly that none of them can
+    infer from its own history.
+    """
+
+    rng = np.random.default_rng(seed)
+    start = dt.datetime(2026, 4, 1, tzinfo=dt.UTC)
+    hours = days * 24
+    positions = np.linspace(0.0, 0.18, stations)  # ~20 km of latitude
+
+    episode = np.zeros(hours)  # synoptic swing, shared by the whole city
+    source = np.zeros(hours)  # the unresolved source's strength, drifting
+    slow_episode = slow_source = 0.0
+    for index in range(hours):
+        slow_episode = 0.995 * slow_episode + rng.normal(0, 2.4)
+        slow_source = 0.99 * slow_source + rng.normal(0, 1.6)
+        episode[index], source[index] = slow_episode, slow_source
+
+    measurements, ambient = [], []
+    for station_index in range(stations):
+        # 1 at the source end of the transect, 0 at the far end.
+        proximity = 1.0 - positions[station_index] / positions[-1]
+        fast = 0.0
+        for index in range(hours):
+            moment = start + dt.timedelta(hours=index)
+            fast = 0.88 * fast + rng.normal(0, 2.2)
+            wind = 1.5 + 2.0 * rng.random()
+            diurnal = 12 * np.sin(2 * np.pi * (moment.hour - 6) / 24)
+
+            cams = max(28 + episode[index] + diurnal * 0.7 - 3 * wind, 1.0)
+            truth = max(cams + 6.0 + 1.4 * proximity * source[index] + fast, 1.0)
+
+            measurements.append(
+                (
+                    station_index + 1,
+                    moment,
+                    round(float(truth), 2),
+                    float(23.75 + positions[station_index]),
+                    float(90.35 + positions[station_index] * 0.2),
+                    10.0,
+                    "dhaka",
+                )
+            )
+            ambient.append(
+                (
+                    station_index + 1,
+                    moment,
+                    round(float(cams + rng.normal(0, 2.0)), 2),
+                    round(float(cams * 1.4), 2),
+                    26.0,
+                    70.0,
+                    float(wind),
+                    180.0,
+                    0.0,
+                    1008.0,
+                    400.0,
+                )
+            )
+    return measurements, ambient
+
+
+def test_the_spatial_block_earns_its_place_when_the_bias_field_is_structured(tmp_path):
+    """The claim the feature is added on, measured rather than asserted: the
+    same estimator, the same rows, the same split, with and without the four
+    spatial columns.
+
+    A neighbour's bias is only worth knowing if bias is spatially correlated,
+    so that is what this fixture makes true. The reverse case - an
+    unstructured field, where the extra columns cost a couple of percent - is
+    documented in `docs/model-improvement-plan.md` rather than pinned here,
+    because what governs it in production is the promotion gate.
+    """
+
+    measurements, ambient = _structured_bias_rows()
+    built = build_panel(measurements, ambient, pd.DataFrame())
+    frame = build_supervised(built, horizons=6, max_rows=None)
+
+    assert frame.X["spatial_bias_krige"].notna().mean() > 0.9, "the fixture must have neighbours"
+
+    without = SupervisedFrame(
+        X=frame.X[[c for c in frame.X.columns if c not in SPATIAL_COLUMNS]],
+        y=frame.y,
+        meta=frame.meta,
+    )
+    with_spatial = train(frame, built, tmp_path / "with", version=1)
+    without_spatial = train(without, built, tmp_path / "without", version=1)
+
+    ours = with_spatial.metrics["overall"][Estimator.MODEL.value]["mae"]
+    theirs = without_spatial.metrics["overall"][Estimator.MODEL.value]["mae"]
+
+    assert ours < theirs * 0.95, (
+        f"spatial features bought only {100 * (theirs - ours) / theirs:.1f}%; "
+        "they are four extra columns and should pay for themselves"
+    )
 
 
 # --- the split -----------------------------------------------------------

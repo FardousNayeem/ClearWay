@@ -92,6 +92,7 @@ def stations(
                 city_slug=station.city_slug,
                 latitude=station.latitude,
                 longitude=station.longitude,
+                timezone=station.timezone,
                 elevation_m=station.elevation_m,
                 distance_km=round(distance, 2) if distance is not None else None,
                 pm25=round(pm25.value, 1) if pm25 else None,
@@ -135,6 +136,7 @@ def nearby(
             city_slug=other.city_slug,
             latitude=other.latitude,
             longitude=other.longitude,
+            timezone=other.timezone,
             elevation_m=other.elevation_m,
             distance_km=round(haversine_km(origin, Point(other.latitude, other.longitude)), 2),
         )

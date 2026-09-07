@@ -285,6 +285,158 @@ def test_the_latest_run_is_the_newest_complete_one(session, station_factory):
     assert all(row.issued_at == now for row in latest)
 
 
+# --- the hourly forecast run ---------------------------------------------
+
+
+def _seed_city(session, station_factory, stations: int, hours: int = 140):
+    """A small city with real history: hourly observations and CAMS for every
+    station, ending at the current hour."""
+    import numpy as np
+
+    from app.db.models import AmbientCondition
+
+    now = dt.datetime.now(dt.UTC).replace(minute=0, second=0, microsecond=0)
+    rng = np.random.default_rng(3)
+    made = []
+
+    for index in range(stations):
+        station = station_factory(
+            name=f"City station {index + 1}",
+            external_id=f"city-{index + 1}",
+            latitude=23.75 + 0.03 * index,
+            longitude=90.35 + 0.03 * index,
+        )
+        made.append(station)
+        for step in range(hours, 0, -1):
+            at = now - dt.timedelta(hours=step)
+            cams = 30.0 + 8 * np.sin(2 * np.pi * at.hour / 24) + rng.normal(0, 2)
+            session.add(
+                Measurement(
+                    station_id=station.id,
+                    parameter="pm25",
+                    observed_at=at,
+                    value=round(float(cams + 6 + 2 * index + rng.normal(0, 3)), 2),
+                )
+            )
+            session.add(
+                AmbientCondition(
+                    station_id=station.id,
+                    valid_at=at,
+                    is_forecast=False,
+                    cams_pm25=round(float(cams), 2),
+                    cams_pm10=round(float(cams * 1.4), 2),
+                    temperature_c=26.0,
+                    relative_humidity=70.0,
+                    wind_speed_ms=2.0,
+                    wind_direction_deg=180.0,
+                    precipitation_mm=0.0,
+                    pressure_hpa=1008.0,
+                    boundary_layer_m=400.0,
+                )
+            )
+    session.flush()
+    return made
+
+
+def _train_and_activate(session, settings, tmp_path):
+    """Train on exactly what was seeded, and register the artefact as active."""
+    import pandas as pd
+
+    from app.ml.features import build_panel, build_supervised
+    from app.ml.trainer import MODEL_NAME, train
+
+    measurements = MeasurementRepository(session).training_rows(
+        "pm25",
+        dt.datetime.now(dt.UTC) - dt.timedelta(days=30),
+        dt.datetime.now(dt.UTC),
+    )
+    from app.repositories.ambient import AmbientRepository
+
+    ambient = AmbientRepository(session).series(
+        sorted({row.station_id for row in measurements}),
+        dt.datetime.now(dt.UTC) - dt.timedelta(days=30),
+        dt.datetime.now(dt.UTC),
+    )
+    panel = build_panel(
+        [tuple(row) for row in measurements], [tuple(row) for row in ambient], pd.DataFrame()
+    )
+    frame = build_supervised(panel, horizons=settings.forecast_horizons, max_rows=None)
+    result = train(frame, panel, tmp_path, version=1)
+
+    return ModelRepository(session).create(
+        name=MODEL_NAME,
+        version=1,
+        algorithm=result.algorithm,
+        trained_at=dt.datetime.now(dt.UTC),
+        training_rows=result.training_rows,
+        window_start=result.window_start,
+        window_end=result.window_end,
+        feature_names=result.feature_names,
+        metrics=result.metrics,
+        artifact_path=str(result.artifact_path),
+        is_active=True,
+        notes="",
+    )
+
+
+def test_the_hourly_run_serves_the_features_the_model_was_trained_on(
+    session, settings, station_factory, tmp_path
+):
+    """Train and serve go through the same feature code, and the predictor
+    asserts the artefact's feature list matches the live rows. Since the
+    spatial block reads a station's *neighbours*, this is the test that would
+    catch a live panel built one station at a time - the shape of mistake that
+    would otherwise surface as silently missing features in production.
+    """
+    from app.services.forecasting import ForecastService
+
+    stations = _seed_city(session, station_factory, stations=4)
+    version = _train_and_activate(session, settings, tmp_path)
+    assert any(name.startswith("spatial_") for name in version.feature_names)
+
+    written = ForecastService(session, settings, ambient=None).run_for_all_stations()
+    session.flush()
+
+    assert written > 0
+    for station in stations:
+        stored = ForecastRepository(session).latest_run(station.id)
+        assert len(stored) == settings.forecast_horizons, station.name
+        assert all(row.pm25 >= 0 for row in stored)
+
+
+def test_a_forecast_is_still_issued_when_the_neighbours_go_quiet(
+    session, settings, station_factory, tmp_path
+):
+    """Spatial features are an enrichment, not a dependency. A city down to
+    one reporting station must still get a forecast, with the spatial columns
+    simply missing."""
+    from app.services.forecasting import ForecastService
+
+    _seed_city(session, station_factory, stations=4)
+    _train_and_activate(session, settings, tmp_path)
+
+    lonely = station_factory(
+        name="Lonely", external_id="lonely", city_slug="chattogram",
+        latitude=22.35, longitude=91.78,
+    )
+    now = dt.datetime.now(dt.UTC).replace(minute=0, second=0, microsecond=0)
+    for step in range(60, 0, -1):
+        session.add(
+            Measurement(
+                station_id=lonely.id,
+                parameter="pm25",
+                observed_at=now - dt.timedelta(hours=step),
+                value=40.0 + step % 7,
+            )
+        )
+    session.flush()
+
+    ForecastService(session, settings, ambient=None).run_for_all_stations()
+    session.flush()
+
+    assert len(ForecastRepository(session).latest_run(lonely.id)) == settings.forecast_horizons
+
+
 # --- guidance ------------------------------------------------------------
 
 

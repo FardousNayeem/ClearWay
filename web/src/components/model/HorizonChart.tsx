@@ -13,7 +13,7 @@ import type { HorizonMetrics } from "@/lib/types";
  * be told apart under deuteranopia, and reference lines do not need a hue.
  */
 const SERIES = [
-  { key: "model", label: "Clearway", colour: "var(--series-model)", dash: undefined, width: 2.5 },
+  { key: "model", label: "ClearWay", colour: "var(--series-model)", dash: undefined, width: 2.5 },
   { key: "cams", label: "CAMS", colour: "var(--series-cams)", dash: "5 4", width: 2 },
   { key: "persistence", label: "Persistence", colour: "var(--series-muted)", dash: "2 3", width: 1.5 },
   { key: "climatology", label: "Climatology", colour: "var(--series-muted)", dash: "8 3 2 3", width: 1.5 },
@@ -81,7 +81,7 @@ export function HorizonChart({
           className="w-full"
           style={{ height }}
           role="img"
-          aria-label={`${metric.toUpperCase()} by forecast horizon for Clearway and three baselines`}
+          aria-label={`${metric.toUpperCase()} by forecast horizon for ClearWay and three baselines`}
           onMouseLeave={() => setHovered(null)}
         >
           <defs>

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+from collections import defaultdict
 
 import pandas as pd
 from sqlalchemy.orm import Session
@@ -65,34 +66,52 @@ class ForecastService:
         horizons = self._settings.forecast_horizons
         written = 0
 
+        # Grouped by city because the panel a station is forecast from now
+        # includes its neighbours - see `_city_panel`. One query and one panel
+        # per city, rather than either per station, keeps the hourly job cheap.
+        by_city: dict[str, list[Station]] = defaultdict(list)
         for station in self._stations.list_active():
-            rows = self._inference_rows(station.id, issued_at, horizons)
-            if rows.empty:
+            by_city[station.city_slug].append(station)
+
+        observations: dict[str, list[tuple]] = defaultdict(list)
+        for row in self._measurements.training_rows(
+            "pm25", issued_at - dt.timedelta(hours=LOOKBACK_HOURS), issued_at
+        ):
+            observations[row.city_slug].append(tuple(row))
+
+        for city_slug, stations in by_city.items():
+            panel = self._city_panel(observations[city_slug], issued_at, horizons)
+            if panel.empty:
                 continue
 
-            predictions = predictor.predict(version.artifact_path, rows)
-            if not predictions:
-                continue
+            for station in stations:
+                rows = build_inference_rows(panel, station.id, issued_at, horizons)
+                if rows.empty:
+                    continue
 
-            written += self._forecasts.upsert(
-                [
-                    {
-                        "station_id": station.id,
-                        "model_version_id": version.id,
-                        "estimator": Estimator.MODEL.value,
-                        "issued_at": issued_at,
-                        "valid_at": prediction.target_hour.to_pydatetime(),
-                        "horizon_hours": prediction.horizon,
-                        "pm25": prediction.pm25,
-                        "pm25_low": prediction.pm25_low,
-                        "pm25_high": prediction.pm25_high,
-                    }
-                    for prediction in predictions
-                ]
-            )
-            # The baselines are stored on the same rows, so the scorecard
-            # compares like with like rather than against a re-derivation.
-            written += self._store_baselines(station.id, issued_at, rows, predictions)
+                predictions = predictor.predict(version.artifact_path, rows)
+                if not predictions:
+                    continue
+
+                written += self._forecasts.upsert(
+                    [
+                        {
+                            "station_id": station.id,
+                            "model_version_id": version.id,
+                            "estimator": Estimator.MODEL.value,
+                            "issued_at": issued_at,
+                            "valid_at": prediction.target_hour.to_pydatetime(),
+                            "horizon_hours": prediction.horizon,
+                            "pm25": prediction.pm25,
+                            "pm25_low": prediction.pm25_low,
+                            "pm25_high": prediction.pm25_high,
+                        }
+                        for prediction in predictions
+                    ]
+                )
+                # The baselines are stored on the same rows, so the scorecard
+                # compares like with like rather than against a re-derivation.
+                written += self._store_baselines(station.id, issued_at, rows, predictions)
 
         logger.info("forecast run at %s wrote %s rows", issued_at, written)
         return written
@@ -129,25 +148,28 @@ class ForecastService:
                 )
         return self._forecasts.upsert(entries)
 
-    def _inference_rows(
-        self, station_id: int, issued_at: dt.datetime, horizons: int
+    def _city_panel(
+        self, measurements: list[tuple], issued_at: dt.datetime, horizons: int
     ) -> pd.DataFrame:
-        start = issued_at - dt.timedelta(hours=LOOKBACK_HOURS)
-        end = issued_at + dt.timedelta(hours=horizons + 1)
+        """One panel per city, holding every station in it.
 
-        measurements = self._measurements.training_rows("pm25", start, issued_at)
+        A station used to be forecast from its own history alone, and a
+        single-station panel was enough. The spatial features krige what a
+        station's *neighbours* are reading this hour, so the panel now has to
+        carry them: with a single station in it those features would be served
+        as missing, and the live pipeline would quietly stop matching the one
+        the model trained on.
+        """
+
         if not measurements:
             return pd.DataFrame()
-        ambient = self._ambient_repo.series([station_id], start, end)
 
-        panel = build_panel(
-            [tuple(row) for row in measurements if row[0] == station_id],
-            [tuple(row) for row in ambient],
-            pd.DataFrame(),
+        ambient = self._ambient_repo.series(
+            sorted({int(row[0]) for row in measurements}),
+            issued_at - dt.timedelta(hours=LOOKBACK_HOURS),
+            issued_at + dt.timedelta(hours=horizons + 1),
         )
-        if panel.empty:
-            return pd.DataFrame()
-        return build_inference_rows(panel, station_id, issued_at, horizons)
+        return build_panel(measurements, [tuple(row) for row in ambient], pd.DataFrame())
 
     # -- the read path ---------------------------------------------------
 

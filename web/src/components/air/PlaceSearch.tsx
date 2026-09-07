@@ -7,7 +7,17 @@ import { get, query } from "@/lib/api";
 import { cn } from "@/lib/format";
 import type { City, Place } from "@/lib/types";
 
-export type Location = { name: string; latitude: number; longitude: number };
+export type Location = {
+  name: string;
+  latitude: number;
+  longitude: number;
+  /**
+   * IANA zone of the place itself, carried alongside the coordinates because
+   * every hour the dashboard shows is an hour here, not an hour wherever the
+   * browser is. Null when the upstream did not give one.
+   */
+  timezone: string | null;
+};
 
 export function PlaceSearch({
   cities,
@@ -78,6 +88,7 @@ export function PlaceSearch({
                       name: place.country ? `${place.name}, ${place.country}` : place.name,
                       latitude: place.latitude,
                       longitude: place.longitude,
+                      timezone: place.timezone,
                     });
                     setTerm("");
                     setOpen(false);
@@ -109,6 +120,7 @@ export function PlaceSearch({
                   name: `${city.name}, ${city.country}`,
                   latitude: city.latitude,
                   longitude: city.longitude,
+                  timezone: city.timezone,
                 })
               }
               className={cn(
